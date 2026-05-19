@@ -1,0 +1,21 @@
+# Environment — contains your LLM endpoint and API key, never commit this
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# Node / frontend build
+node_modules/
+dist/
+.vite/
+
+# Editor
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
