@@ -7,7 +7,6 @@
       <span v-if="isSB" class="badge sb-badge">SB</span>
       <span v-if="isBB" class="badge bb-badge">BB</span>
     </div>
-    <div v-if="player.is_llm && player.personality" class="personality-badge">{{ player.personality }}</div>
     <div class="stack">💰 {{ player.stack }}</div>
     <div v-if="player.bet_this_round > 0" class="current-bet">Bet: {{ player.bet_this_round }}</div>
     <div class="cards">
@@ -123,14 +122,6 @@ const statusClass = computed(() => {
   color: #f1c40f;
   animation: pulse 1s infinite;
   margin-top: 4px;
-}
-.personality-badge {
-  font-size: 0.6em;
-  color: #aaa;
-  background: rgba(255,255,255,0.08);
-  padding: 1px 5px;
-  border-radius: 4px;
-  margin-top: 2px;
 }
 @keyframes pulse {
   0%, 100% { opacity: 1; }

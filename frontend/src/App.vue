@@ -4,13 +4,15 @@
     <QuickStart v-if="showQuickStart" @close="showQuickStart = false" />
 
     <!-- ===== LOBBY ===== -->
-    <div v-if="screen === 'lobby'" class="lobby">
+    <div v-if="screen === 'lobby'" class="lobby-wrapper">
       <div class="lobby-title-row">
         <h1>🃏 Texas Hold'em</h1>
         <button class="btn-rules" @click="showQuickStart = true" title="How to play">? Rules</button>
       </div>
       <p class="subtitle">Multiplayer poker with AI opponents</p>
 
+      <div class="lobby-layout">
+      <div class="lobby-main">
       <div class="lobby-card">
         <div class="form-group">
           <label>Your Name</label>
@@ -105,6 +107,11 @@
 
         <div v-if="lobbyError" class="error">{{ lobbyError }}</div>
       </div>
+      </div><!-- /lobby-main -->
+
+      <HistoryExplorer :sessions="gameHistory" />
+
+      </div><!-- /lobby-layout -->
     </div>
 
     <!-- ===== WAITING ROOM ===== -->
@@ -186,7 +193,6 @@
             }"
           >
             <div class="opp-name">{{ p.name }}<span v-if="p.is_llm"> 🤖</span></div>
-            <div v-if="p.is_llm && p.personality" class="opp-personality">{{ p.personality }}</div>
             <div class="opp-stack">{{ p.stack }}</div>
             <div class="opp-cards">
               <CardSprite
@@ -299,6 +305,7 @@ import ActionPanel from './components/ActionPanel.vue'
 import GameLog from './components/GameLog.vue'
 import CardSprite from './components/CardSprite.vue'
 import QuickStart from './components/QuickStart.vue'
+import HistoryExplorer from './components/HistoryExplorer.vue'
 
 const API = '/api'
 const WS_BASE = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`
@@ -396,6 +403,16 @@ function stepRaise(delta) {
 const llmSettingsOpen = ref(false)
 const llmConfigMsg = ref('')
 const llmConfig = ref({ url: '', apiKey: '', model: '' })
+
+// Game history (fetched on mount, passed to HistoryExplorer)
+const gameHistory = ref([])
+
+async function fetchHistory() {
+  try {
+    const r = await fetch(`${API}/history`)
+    if (r.ok) gameHistory.value = await r.json()
+  } catch {}
+}
 
 async function fetchLlmConfig() {
   try {
@@ -579,6 +596,7 @@ function onResize() { isMobile.value = window.innerWidth < 600 }
 onMounted(async () => {
   window.addEventListener('resize', onResize)
   fetchLlmConfig()
+  fetchHistory()
   // Restore room from URL hash on load / refresh
   const hashRoom = location.hash.replace('#', '').trim().toLowerCase()
   if (hashRoom) {
@@ -627,9 +645,22 @@ body { background: #0f0f1e; }
 }
 
 /* Lobby */
-.lobby {
-  max-width: 520px;
+.lobby-wrapper {
+  max-width: 1100px;
   margin: 40px auto;
+}
+.lobby-layout {
+  display: grid;
+  grid-template-columns: 520px 1fr;
+  gap: 24px;
+  max-width: 1100px;
+  margin: 0 auto 40px;
+  align-items: start;
+}
+.lobby-main { min-width: 0; }
+@media (max-width: 900px) {
+  .lobby-layout { grid-template-columns: 1fr; }
+  .lobby-main { max-width: 520px; margin: 0 auto; width: 100%; }
 }
 .lobby-title-row {
   display: flex;
@@ -638,7 +669,7 @@ body { background: #0f0f1e; }
   gap: 12px;
   margin-bottom: 0;
 }
-.lobby h1 {
+.lobby-title-row h1 {
   text-align: center;
   font-size: 2.2em;
   color: var(--gold);
@@ -931,7 +962,6 @@ h3 { font-size: 0.95em; color: #bbb; margin-bottom: 14px; }
 .opp-chip.opp-folded { opacity: 0.4; }
 .opp-chip.opp-out { opacity: 0.2; }
 .opp-name { font-size: 0.7em; font-weight: bold; max-width: 60px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.opp-personality { font-size: 0.56em; color: #888; background: rgba(255,255,255,0.07); padding: 1px 4px; border-radius: 3px; margin-bottom: 1px; }
 .opp-stack { font-size: 0.66em; color: var(--gold); }
 .opp-cards { display: flex; gap: 2px; margin: 2px 0; }
 .opp-bet { font-size: 0.6em; color: #e67e22; }

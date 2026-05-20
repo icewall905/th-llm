@@ -171,6 +171,7 @@ class PokerGame:
         self.winners: list[dict] = []
 
         # Cross-hand memory
+        self._hand_log_offset: int = 0           # index into hand_log where current hand starts
         self.hand_history: list[dict] = []       # one entry per completed hand
         self.player_stats: dict[str, dict] = {}  # name -> stats dict
 
@@ -311,6 +312,7 @@ class PokerGame:
         self.current_bet = 0
         self.round_log = []
         self.winners = []
+        self._hand_log_offset = len(self.hand_log)
         self._fresh_deck()
 
         for p in self.players:
@@ -600,9 +602,10 @@ class PokerGame:
         hand_entry = {
             "hand_num": len(self.hand_history) + 1,
             "community": community_str,
-            "pot": self.pot + sum(w["amount"] for w in winners_info),  # before distribution
+            "pot": sum(w["amount"] for w in winners_info),
             "went_to_showdown": went_to_showdown,
             "winners": winners_info,
+            "actions": self.hand_log[self._hand_log_offset:],
             "players": [
                 {
                     "name": p.name,

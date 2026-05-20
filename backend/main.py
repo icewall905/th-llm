@@ -2,6 +2,7 @@ import asyncio
 import logging
 import random
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,11 +11,13 @@ from pydantic import BaseModel
 from config import settings
 from game.poker import PokerGame, Phase, PlayerStatus
 from game.llm_player import get_llm_action, get_llm_name, reset_model_cache
+from game.history_db import init_db, save_session, get_history, get_session
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Texas Hold'em Poker")
+init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,6 +32,8 @@ games: dict[str, PokerGame] = {}
 connections: dict[str, dict[str, WebSocket]] = {}
 # room_id -> host player_id
 room_hosts: dict[str, str] = {}
+# room_id -> ISO timestamp of when the room was created
+room_created_at: dict[str, str] = {}
 
 PERSONALITIES = [
     {"tag": "LAG",     "desc": "You are loose-aggressive: you play many hands, raise frequently, and put constant pressure on opponents. You bluff often."},
@@ -116,6 +121,7 @@ async def create_room(req: CreateRoomRequest) -> dict:
     game.num_llm_slots = req.num_llms
     games[room_id] = game
     connections[room_id] = {}
+    room_created_at[room_id] = datetime.now(timezone.utc).isoformat()
     logger.info(f"Room {room_id} created: {req.num_humans} humans, {req.num_llms} LLMs")
     return {"room_id": room_id}
 
@@ -124,6 +130,31 @@ async def create_room(req: CreateRoomRequest) -> dict:
 async def delete_room(room_id: str):
     if room_id not in games:
         raise HTTPException(status_code=404, detail="Room not found")
+    game = games[room_id]
+    # Persist history before removing
+    if game.phase != Phase.WAITING:
+        try:
+            players_data = [
+                {
+                    "name": p.name,
+                    "is_llm": p.is_llm,
+                    "personality": p.personality,
+                    "final_stack": p.stack,
+                }
+                for p in game.players
+            ]
+            save_session(
+                room_id=room_id,
+                created_at=room_created_at.get(room_id, ""),
+                num_hands=len(game.hand_history),
+                small_blind=game.small_blind,
+                big_blind=game.big_blind,
+                starting_stack=game.starting_stack,
+                players=players_data,
+                hand_history=game.hand_history,
+            )
+        except Exception as exc:
+            logger.error(f"Failed to save history for room {room_id}: {exc}")
     for ws in list(connections.get(room_id, {}).values()):
         try:
             await ws.close(code=1001)
@@ -132,7 +163,21 @@ async def delete_room(room_id: str):
     games.pop(room_id, None)
     connections.pop(room_id, None)
     room_hosts.pop(room_id, None)
+    room_created_at.pop(room_id, None)
     return {"deleted": room_id}
+
+
+@app.get("/history")
+async def list_history():
+    return get_history(limit=50)
+
+
+@app.get("/history/{session_id}")
+async def get_history_detail(session_id: int):
+    detail = get_session(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return detail
 
 
 @app.get("/rooms/{room_id}")
