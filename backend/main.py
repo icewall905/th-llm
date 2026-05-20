@@ -310,7 +310,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
             if msg_type == "join":
                 name = data.get("name", f"Player{player_id[:4]}")
                 existing = game.get_player(player_id)
-                if not existing:
+                if not existing and game.num_human_slots > 0:
                     seat = data.get("seat", len(game.players))
                     taken_seats = {p.seat for p in game.players}
                     while seat in taken_seats:

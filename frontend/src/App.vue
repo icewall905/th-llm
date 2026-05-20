@@ -46,7 +46,8 @@
         <div class="form-row">
           <div class="form-group">
             <label>Human Players</label>
-            <input type="number" v-model.number="newRoom.numHumans" min="1" max="5" />
+            <input type="number" v-model.number="newRoom.numHumans" min="0" max="5" />
+            <span v-if="newRoom.numHumans === 0" class="spectator-hint">spectator mode</span>
           </div>
           <div class="form-group">
             <label>LLM Players</label>
@@ -150,6 +151,7 @@
           <span class="room-label">Room: {{ roomId }}</span>
           <span class="phase-pill">{{ phaseLabel }}</span>
           <span v-if="connectionStatus !== 'connected'" class="conn-status">{{ connectionStatus }}</span>
+          <span v-if="!myPlayer && gameState.phase !== 'waiting'" class="spectator-pill">spectator</span>
           <button class="btn-rules" @click="showQuickStart = true" title="How to play">? Rules</button>
           <button class="btn-exit" @click="leaveGame">Exit Game</button>
         </div>
@@ -176,6 +178,7 @@
           <span class="room-label">{{ roomId }}</span>
           <span class="phase-pill">{{ phaseLabel }}</span>
           <span v-if="connectionStatus !== 'connected'" class="conn-status">{{ connectionStatus }}</span>
+          <span v-if="!myPlayer && gameState.phase !== 'waiting'" class="spectator-pill">spectator</span>
           <button class="btn-rules" @click="showQuickStart = true" title="How to play">?</button>
           <button class="btn-exit" @click="leaveGame">Exit</button>
         </div>
@@ -1100,4 +1103,21 @@ h3 { font-size: 0.95em; color: #bbb; margin-bottom: 14px; }
 .raise-display { font-size: 1.1em; font-weight: bold; color: #f39c12; }
 .mobile-slider { width: 100%; accent-color: #f39c12; height: 6px; }
 .confirm-raise { flex: unset; width: 100%; min-height: 50px; }
+
+/* Spectator mode */
+.spectator-hint {
+  font-size: 0.72em;
+  color: #666;
+  font-style: italic;
+  margin-top: 2px;
+}
+.spectator-pill {
+  font-size: 0.72em;
+  color: #555;
+  border: 1px solid #333;
+  border-radius: 10px;
+  padding: 2px 8px;
+  letter-spacing: 0.5px;
+  font-style: italic;
+}
 </style>
