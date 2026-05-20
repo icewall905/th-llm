@@ -217,6 +217,7 @@ class PokerGame:
         self.num_human_slots: int = 0
         self.num_llm_slots: int = 0
         self.learning_mode: bool = False
+        self._learning_cache: dict = {}  # player_id -> (cache_key, result)
 
     # ── Roster ────────────────────────────────────────────────────────────────
 
@@ -353,6 +354,7 @@ class PokerGame:
         self.round_log = []
         self.winners = []
         self._hand_log_offset = len(self.hand_log)
+        self._learning_cache = {}
         self._fresh_deck()
 
         for p in self.players:
@@ -834,8 +836,15 @@ class PokerGame:
                 and self.phase not in (Phase.WAITING, Phase.SHOWDOWN)
                 and player.status in (PlayerStatus.ACTIVE, PlayerStatus.ALL_IN)
                 and player.hole_cards):
-            eq = self.calculate_player_equity(player)
-            state["learning"] = {"equity": eq, **self.learning_hints(player, eq)}
+            cache_key = (len(self.hand_log), self.phase, len(self.community_cards))
+            cached = self._learning_cache.get(player.id)
+            if cached and cached[0] == cache_key:
+                state["learning"] = cached[1]
+            else:
+                eq = self.calculate_player_equity(player)
+                result = {"equity": eq, **self.learning_hints(player, eq)}
+                self._learning_cache[player.id] = (cache_key, result)
+                state["learning"] = result
         return state
 
     # ── LLM prompt ────────────────────────────────────────────────────────────
