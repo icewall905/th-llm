@@ -36,6 +36,10 @@
           :isBB="isBBSeat(idx)"
           :phase="state.phase"
           :isThinking="llmThinking === player.id"
+          :equity="state.equities
+            ? (state.equities[player.id] ?? null)
+            : (player.id === state.your_id && state.learning ? state.learning.equity : null)"
+          :isSpectator="isSpectator"
         />
       </div>
     </div>
@@ -61,6 +65,7 @@ import PlayerSeat from './PlayerSeat.vue'
 const props = defineProps({
   state: Object,
   llmThinking: { type: String, default: null },
+  isSpectator: { type: Boolean, default: false },
 })
 
 const PHASE_LABELS = {

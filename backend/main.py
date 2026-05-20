@@ -53,6 +53,7 @@ class CreateRoomRequest(BaseModel):
     small_blind: int = 10
     big_blind: int = 20
     starting_stack: int = 1000
+    learning_mode: bool = False
 
 
 class RoomInfo(BaseModel):
@@ -64,6 +65,7 @@ class RoomInfo(BaseModel):
     small_blind: int
     big_blind: int
     starting_stack: int
+    learning_mode: bool = False
 
 
 class ConfigUpdate(BaseModel):
@@ -104,6 +106,7 @@ async def list_rooms() -> list[RoomInfo]:
             small_blind=game.small_blind,
             big_blind=game.big_blind,
             starting_stack=game.starting_stack,
+            learning_mode=game.learning_mode,
         ))
     return result
 
@@ -119,6 +122,7 @@ async def create_room(req: CreateRoomRequest) -> dict:
     )
     game.num_human_slots = req.num_humans
     game.num_llm_slots = req.num_llms
+    game.learning_mode = req.learning_mode
     games[room_id] = game
     connections[room_id] = {}
     room_created_at[room_id] = datetime.now(timezone.utc).isoformat()
@@ -194,6 +198,7 @@ async def get_room(room_id: str) -> RoomInfo:
         small_blind=game.small_blind,
         big_blind=game.big_blind,
         starting_stack=game.starting_stack,
+        learning_mode=game.learning_mode,
     )
 
 

@@ -69,6 +69,9 @@
           <div class="hw-players">
             <div v-for="p in currentHand.players" :key="p.name" class="hw-player-row">
               <span class="hw-pr-name">{{ p.name }}</span>
+              <div v-if="p.hole_cards && p.hole_cards.length" class="hw-pr-cards">
+                <CardSprite v-for="(c, i) in p.hole_cards" :key="i" :card="c" :small="true" />
+              </div>
               <span class="hw-pr-stacks">{{ p.stack_before }} → {{ p.stack_after }}</span>
               <span v-if="p.showed" class="hw-pr-hand">{{ p.showed }}</span>
             </div>
@@ -337,6 +340,7 @@ function formatDate(iso) {
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 .hw-pr-name { color: #ccc; min-width: 80px; font-weight: bold; }
+.hw-pr-cards { display: flex; gap: 2px; flex-shrink: 0; }
 .hw-pr-stacks { color: #888; font-family: monospace; font-size: 0.95em; }
 .hw-pr-hand { margin-left: auto; color: #5dade2; font-size: 0.88em; }
 

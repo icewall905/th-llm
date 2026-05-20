@@ -129,6 +129,26 @@ def hand_name(cards: list[Card]) -> str:
     return HAND_NAMES[rank[0]] if rank else "Unknown"
 
 
+def describe_preflop_hand(hole_cards: list) -> str:
+    if len(hole_cards) != 2:
+        return "Unknown"
+    c1, c2 = hole_cards
+    r1, r2 = RANK_VALUE[c1.rank], RANK_VALUE[c2.rank]
+    suited = c1.suit == c2.suit
+    if c1.rank == c2.rank:
+        name = {"A": "Aces", "K": "Kings", "Q": "Queens", "J": "Jacks", "10": "Tens"}.get(c1.rank, f"{c1.rank}s")
+        return f"Pocket {name}"
+    hi = c1.rank if r1 > r2 else c2.rank
+    lo = c2.rank if r1 > r2 else c1.rank
+    gap = abs(r1 - r2)
+    s = "Suited" if suited else "Offsuit"
+    if hi == "A": return f"Ace-{lo} {s}"
+    if hi == "K": return f"King-{lo} {s}"
+    if gap == 1:  return "Suited Connectors" if suited else f"Connectors ({hi}-{lo})"
+    if gap == 2:  return f"One-Gapper ({hi}-{lo}{', suited' if suited else ''})"
+    return f"{hi}-{lo} {s}"
+
+
 # ── Per-player stats ───────────────────────────────────────────────────────────
 
 def _empty_stats() -> dict:
@@ -142,6 +162,25 @@ def _empty_stats() -> dict:
         "vpip_this_hand": False,
         "stack_start": 0,
     }
+
+
+def _learning_tip(equity: float, draws: list, call_amount: int, pot: int) -> str:
+    pct = equity * 100
+    if pct >= 80:
+        return "Strong favourite — consider building the pot with a bet or raise."
+    if pct >= 60:
+        return "Good hand — betting for value is usually correct here."
+    if pct >= 40:
+        return "Marginal spot — pot odds and position matter."
+    if draws:
+        if call_amount and pot:
+            needed = 100 * call_amount / (pot + call_amount)
+            if pct >= needed:
+                return "Your draw has enough equity to call. Stay in."
+        return "You have a draw — weigh pot odds before calling a large bet."
+    if pct >= 25:
+        return "Weak hand — fold unless pot odds make a call profitable."
+    return "Very weak hand — folding is usually the right play here."
 
 
 # ── Game ───────────────────────────────────────────────────────────────────────
@@ -177,6 +216,7 @@ class PokerGame:
 
         self.num_human_slots: int = 0
         self.num_llm_slots: int = 0
+        self.learning_mode: bool = False
 
     # ── Roster ────────────────────────────────────────────────────────────────
 
@@ -612,6 +652,9 @@ class PokerGame:
                     "stack_before": stack_before.get(p.name, 0),
                     "stack_after": p.stack,
                     "showed": showed.get(p.name) if went_to_showdown else None,
+                    "hole_cards": [c.to_dict() for c in p.hole_cards]
+                        if p.status in (PlayerStatus.ACTIVE, PlayerStatus.ALL_IN)
+                        else [],
                 }
                 for p in self.players
                 if p.status != PlayerStatus.OUT
@@ -620,13 +663,143 @@ class PokerGame:
         self.hand_history.append(hand_entry)
         self.pot = 0
 
+    # ── Equity & learning hints ───────────────────────────────────────────────
+
+    def calculate_equities(self) -> dict[str, float]:
+        """Monte Carlo / exact win-probability for each active player."""
+        active = [p for p in self.players
+                  if p.status in (PlayerStatus.ACTIVE, PlayerStatus.ALL_IN)
+                  and p.hole_cards]
+        if len(active) < 2:
+            return {p.id: 1.0 for p in active} if active else {}
+
+        known = {(c.rank, c.suit) for p in active for c in p.hole_cards}
+        known |= {(c.rank, c.suit) for c in self.community_cards}
+        remaining = [Card(r, s) for r in RANKS for s in SUITS if (r, s) not in known]
+        cards_needed = 5 - len(self.community_cards)
+
+        wins: dict[str, float] = {p.id: 0.0 for p in active}
+        total = 0
+        community = self.community_cards
+
+        def _eval(extra: list) -> None:
+            nonlocal total
+            board = community + extra
+            scores = [(best_hand(p.hole_cards + board), p) for p in active]
+            top = max(s for s, _ in scores)
+            tied = [p for s, p in scores if s == top]
+            share = 1.0 / len(tied)
+            for p in tied:
+                wins[p.id] += share
+            total += 1
+
+        if cards_needed == 0:
+            _eval([])
+        elif cards_needed == 1:
+            for c in remaining:
+                _eval([c])
+        elif cards_needed == 2:
+            for i in range(len(remaining)):
+                for j in range(i + 1, len(remaining)):
+                    _eval([remaining[i], remaining[j]])
+        else:
+            # Pre-flop / 3-card run-out: Monte Carlo
+            for _ in range(1200):
+                _eval(random.sample(remaining, cards_needed))
+
+        if not total:
+            return {}
+        return {pid: round(wins[pid] / total, 3) for pid in wins}
+
+    def calculate_player_equity(self, player: Player, num_sims: int = 800) -> float:
+        """Monte Carlo equity from the player's own perspective (opponents' cards unknown)."""
+        if not player.hole_cards:
+            return 0.0
+        opps = [p for p in self.players
+                if p.id != player.id and p.status in (PlayerStatus.ACTIVE, PlayerStatus.ALL_IN)]
+        if not opps:
+            return 1.0
+        known = {(c.rank, c.suit) for c in player.hole_cards}
+        known |= {(c.rank, c.suit) for c in self.community_cards}
+        remaining = [Card(r, s) for r in RANKS for s in SUITS if (r, s) not in known]
+        n_opp = len(opps)
+        cards_needed = 5 - len(self.community_cards)
+        total_extra = 2 * n_opp + cards_needed
+        wins = 0.0
+        for _ in range(num_sims):
+            sample = random.sample(remaining, total_extra)
+            board = list(self.community_cards) + sample[2 * n_opp:]
+            my_score = best_hand(player.hole_cards + board)
+            opp_best = max(best_hand(sample[i * 2:(i + 1) * 2] + board) for i in range(n_opp))
+            if my_score > opp_best:
+                wins += 1
+            elif my_score == opp_best:
+                wins += 0.5
+        return round(wins / num_sims, 3)
+
+    def learning_hints(self, player: Player, equity: float) -> dict:
+        """Generate hand description, draw info, pot odds, and a strategic tip."""
+        hole, community = player.hole_cards, self.community_cards
+        # Hand description
+        if len(hole) + len(community) >= 5:
+            rank = best_hand(hole + community)
+            groups = rank[1] if rank else []
+            if rank and rank[0] == 2 and len(groups) >= 2:
+                current_hand = f"Two Pair ({RANKS[groups[0]]}s and {RANKS[groups[1]]}s)"
+            elif rank and rank[0] == 1 and groups:
+                current_hand = f"One Pair ({RANKS[groups[0]]}s)"
+            elif rank and rank[0] == 3 and groups:
+                current_hand = f"Three of a Kind ({RANKS[groups[0]]}s)"
+            else:
+                current_hand = HAND_NAMES[rank[0]] if rank else "High Card"
+        else:
+            current_hand = describe_preflop_hand(hole)
+        # Draw detection (flop/turn only)
+        draws = []
+        if self.phase in (Phase.FLOP, Phase.TURN) and len(community) >= 3:
+            from collections import Counter as _C
+            all_cards = hole + community
+            suit_counts = _C(c.suit for c in all_cards)
+            if max(suit_counts.values()) == 4:
+                draws.append("Flush draw")
+            unique_ranks = sorted({RANK_VALUE[c.rank] for c in all_cards})
+            if 12 in unique_ranks:
+                unique_ranks = [-1] + unique_ranks
+            best_run = run = 1
+            for i in range(1, len(unique_ranks)):
+                run = run + 1 if unique_ranks[i] == unique_ranks[i - 1] + 1 else 1
+                best_run = max(best_run, run)
+            if best_run >= 4:
+                draws.append("Open-ended straight draw")
+            elif not draws:
+                for i in range(len(unique_ranks) - 3):
+                    w = unique_ranks[i:i + 4]
+                    if w[-1] - w[0] == 4 and len(w) == 4:
+                        draws.append("Gutshot straight draw")
+                        break
+        # Pot odds
+        pot_odds = None
+        va = self.valid_actions(player) if player.status == PlayerStatus.ACTIVE else {}
+        call_amt = va.get("call_amount", 0)
+        if call_amt and self.pot:
+            ratio = self.pot / call_amt
+            needed = 100 * call_amt / (self.pot + call_amt)
+            pot_odds = f"Pot odds: {ratio:.1f}:1 — you need ~{needed:.0f}% equity to call profitably"
+        return {
+            "hand_name": current_hand,
+            "draws": draws,
+            "pot_odds": pot_odds,
+            "tip": _learning_tip(equity, draws, call_amt, self.pot),
+        }
+
     # ── State serialization ───────────────────────────────────────────────────
 
     def state_for_player(self, player_id: str) -> dict:
         player = self.get_player(player_id)
         players_data = []
+        is_spectator = player is None
         for p in self.players:
-            reveal = (p.id == player_id) or (self.phase == Phase.SHOWDOWN)
+            reveal = (p.id == player_id) or (self.phase == Phase.SHOWDOWN) or (is_spectator and p.is_llm)
             players_data.append(p.to_dict(reveal_cards=reveal))
 
         va = {}
@@ -634,7 +807,7 @@ class PokerGame:
                 and self.current_player_id == player_id):
             va = self.valid_actions(player)
 
-        return {
+        state = {
             "room_id": self.room_id,
             "phase": self.phase.value,
             "players": players_data,
@@ -651,7 +824,19 @@ class PokerGame:
             "num_human_slots": self.num_human_slots,
             "num_llm_slots": self.num_llm_slots,
             "hand_num": len(self.hand_history),
+            "learning_mode": self.learning_mode,
         }
+        if is_spectator and self.phase not in (Phase.WAITING, Phase.SHOWDOWN):
+            state["equities"] = self.calculate_equities()
+        if (self.learning_mode
+                and player is not None
+                and not player.is_llm
+                and self.phase not in (Phase.WAITING, Phase.SHOWDOWN)
+                and player.status in (PlayerStatus.ACTIVE, PlayerStatus.ALL_IN)
+                and player.hole_cards):
+            eq = self.calculate_player_equity(player)
+            state["learning"] = {"equity": eq, **self.learning_hints(player, eq)}
+        return state
 
     # ── LLM prompt ────────────────────────────────────────────────────────────
 

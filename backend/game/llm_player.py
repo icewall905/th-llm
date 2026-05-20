@@ -126,6 +126,37 @@ async def get_llm_name(existing_names: list[str]) -> str:
         return "Maverick"
 
 
+CHEAT_SHEET = """
+## Texas Hold'em Reference
+
+### Hand Rankings (Best to Worst)
+Royal Flush > Straight Flush > Four of a Kind > Full House > Flush > Straight > Three of a Kind > Two Pair > One Pair > High Card
+
+### Betting Rounds
+- Preflop: SB and BB posted. Each player gets 2 hole cards. UTG acts first.
+- Flop: 3 community cards revealed. Action starts left of dealer.
+- Turn: 4th community card. Same rules as flop.
+- River: 5th community card. Same rules.
+- Showdown: Best 5-card hand (from 2 hole cards + 5 community cards) wins.
+
+### Positions (tightest → loosest preflop range)
+UTG → EP → MP → HJ → CO → BTN (acts last postflop — widest range) → SB → BB
+
+### Position Strategy
+- UTG/Early: Very tight range — many opponents left to act.
+- Middle: Add small pairs and suited connectors.
+- Cutoff/Button: Open wide — position advantage postflop.
+- Blinds: Stick to premiums; you act first postflop and lose here long-term.
+
+### Key Principles
+- Position is power — tight early, aggressive near the button.
+- Don't limp — if worth playing, raise.
+- Attack blinds from cutoff/button when folded to you.
+- Pay attention to opponents' tendencies and adjust.
+- Pot odds: if pot odds > hand equity needed, calling is profitable.
+"""
+
+
 async def get_llm_action(prompt: str, personality: str = "") -> tuple[str, int]:
     model = await _resolve_model()
     style = f" {personality}" if personality else " Play skillfully."
@@ -133,6 +164,7 @@ async def get_llm_action(prompt: str, personality: str = "") -> tuple[str, int]:
         "You are a Texas Hold'em poker player." + style +
         " Think carefully about the situation, then respond with exactly "
         "one line after your reasoning: FOLD, CHECK, CALL, or RAISE <amount>."
+        + CHEAT_SHEET
     )
     payload = {
         "model": model,

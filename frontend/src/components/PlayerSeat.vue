@@ -7,6 +7,9 @@
       <span v-if="isSB" class="badge sb-badge">SB</span>
       <span v-if="isBB" class="badge bb-badge">BB</span>
     </div>
+    <div v-if="isSpectator && player.is_llm && player.personality" class="personality-label">
+      {{ player.personality }}
+    </div>
     <div class="stack">💰 {{ player.stack }}</div>
     <div v-if="player.bet_this_round > 0" class="current-bet">Bet: {{ player.bet_this_round }}</div>
     <div class="cards">
@@ -21,6 +24,10 @@
     <div v-if="player.status === 'folded'" class="status-label folded">FOLDED</div>
     <div v-if="player.status === 'all_in'" class="status-label all-in">ALL IN</div>
     <div v-if="isCurrent && isThinking" class="thinking">thinking…</div>
+    <div v-if="equity != null && player.status !== 'folded' && player.status !== 'out'" class="equity-bar-wrap">
+      <div class="equity-bar" :style="{ width: (equity * 100).toFixed(1) + '%' }" :class="equityClass"></div>
+      <span class="equity-label">{{ (equity * 100).toFixed(1) }}%</span>
+    </div>
   </div>
 </template>
 
@@ -37,6 +44,8 @@ const props = defineProps({
   isBB: Boolean,
   phase: String,
   isThinking: Boolean,
+  equity: { type: Number, default: null },
+  isSpectator: { type: Boolean, default: false },
 })
 
 const statusClass = computed(() => {
@@ -44,6 +53,14 @@ const statusClass = computed(() => {
   if (props.player.status === 'all_in') return 'all-in'
   if (props.player.status === 'out') return 'out'
   return ''
+})
+
+const equityClass = computed(() => {
+  const e = props.equity
+  if (e == null) return ''
+  if (e >= 0.6) return 'eq-high'
+  if (e >= 0.35) return 'eq-mid'
+  return 'eq-low'
 })
 </script>
 
@@ -84,6 +101,12 @@ const statusClass = computed(() => {
   white-space: nowrap;
 }
 .llm-badge { font-size: 0.9em; }
+.personality-label {
+  font-size: 0.65em;
+  color: #a29bfe;
+  font-style: italic;
+  margin-bottom: 2px;
+}
 .badge {
   font-size: 0.65em;
   font-weight: bold;
@@ -126,6 +149,33 @@ const statusClass = computed(() => {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
+}
+.equity-bar-wrap {
+  position: relative;
+  margin-top: 5px;
+  height: 14px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.equity-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+.equity-bar.eq-high { background: #27ae60; }
+.equity-bar.eq-mid  { background: #f39c12; }
+.equity-bar.eq-low  { background: #c0392b; }
+.equity-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68em;
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 0 0 3px rgba(0,0,0,0.8);
 }
 @media (max-width: 899px) {
   .seat { min-width: 88px; padding: 5px 7px; }

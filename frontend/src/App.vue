@@ -68,6 +68,13 @@
             <input type="number" v-model.number="newRoom.startingStack" min="100" step="100" />
           </div>
         </div>
+        <div class="form-group-toggle">
+          <label class="toggle-label">
+            <input type="checkbox" v-model="newRoom.learningMode" />
+            🎓 Learning Mode
+            <span class="toggle-hint">Shows win %, hand hints &amp; pot odds to human players</span>
+          </label>
+        </div>
         <button class="btn-primary" @click="createRoom" :disabled="!playerName.trim()">
           Create Game
         </button>
@@ -152,12 +159,17 @@
           <span class="phase-pill">{{ phaseLabel }}</span>
           <span v-if="connectionStatus !== 'connected'" class="conn-status">{{ connectionStatus }}</span>
           <span v-if="!myPlayer && gameState.phase !== 'waiting'" class="spectator-pill">spectator</span>
+          <span v-if="gameState.learning_mode" class="learning-pill">🎓 Learning</span>
           <button class="btn-rules" @click="showQuickStart = true" title="How to play">? Rules</button>
           <button class="btn-exit" @click="leaveGame">Exit Game</button>
         </div>
         <div class="game-layout">
           <div class="table-col">
-            <PokerTable :state="gameState" :llmThinking="llmThinkingId" />
+            <PokerTable :state="gameState" :llmThinking="llmThinkingId" :isSpectator="!myPlayer" />
+            <HintsPanel
+              v-if="gameState.learning && myPlayer && gameState.phase !== 'waiting' && gameState.phase !== 'showdown'"
+              :learning="gameState.learning"
+            />
             <ActionPanel
               :isMyTurn="isMyTurn"
               :va="gameState.valid_actions || {}"
@@ -179,6 +191,7 @@
           <span class="phase-pill">{{ phaseLabel }}</span>
           <span v-if="connectionStatus !== 'connected'" class="conn-status">{{ connectionStatus }}</span>
           <span v-if="!myPlayer && gameState.phase !== 'waiting'" class="spectator-pill">spectator</span>
+          <span v-if="gameState.learning_mode" class="learning-pill">🎓</span>
           <button class="btn-rules" @click="showQuickStart = true" title="How to play">?</button>
           <button class="btn-exit" @click="leaveGame">Exit</button>
         </div>
@@ -196,6 +209,7 @@
             }"
           >
             <div class="opp-name">{{ p.name }}<span v-if="p.is_llm"> 🤖</span></div>
+            <div v-if="!myPlayer && p.is_llm && p.personality" class="opp-personality">{{ p.personality }}</div>
             <div class="opp-stack">{{ p.stack }}</div>
             <div class="opp-cards">
               <CardSprite
@@ -206,6 +220,11 @@
             <div v-if="p.bet_this_round > 0" class="opp-bet">+{{ p.bet_this_round }}</div>
             <div v-if="p.status === 'folded'" class="opp-status">FOLD</div>
             <div v-if="p.status === 'all_in'" class="opp-status opp-allin">ALL IN</div>
+            <div v-if="gameState.equities && gameState.equities[p.id] != null && p.status !== 'folded' && p.status !== 'out'" class="opp-equity-wrap">
+              <div class="opp-equity-bar" :style="{ width: (gameState.equities[p.id] * 100).toFixed(1) + '%' }"
+                :class="gameState.equities[p.id] >= 0.6 ? 'eq-high' : gameState.equities[p.id] >= 0.35 ? 'eq-mid' : 'eq-low'"></div>
+              <span class="opp-equity-label">{{ (gameState.equities[p.id] * 100).toFixed(1) }}%</span>
+            </div>
           </div>
         </div>
 
@@ -245,6 +264,13 @@
             <span v-if="myPlayer.bet_this_round > 0"> · Bet: {{ myPlayer.bet_this_round }}</span>
           </div>
         </div>
+
+        <!-- Learning hints -->
+        <HintsPanel
+          v-if="gameState.learning && myPlayer && gameState.phase !== 'waiting' && gameState.phase !== 'showdown'"
+          :learning="gameState.learning"
+          class="mobile-hints"
+        />
 
         <!-- Log toggle + drawer -->
         <div class="mobile-log-section">
@@ -309,6 +335,7 @@ import GameLog from './components/GameLog.vue'
 import CardSprite from './components/CardSprite.vue'
 import QuickStart from './components/QuickStart.vue'
 import HistoryExplorer from './components/HistoryExplorer.vue'
+import HintsPanel from './components/HintsPanel.vue'
 
 const API = '/api'
 const WS_BASE = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`
@@ -331,6 +358,7 @@ const newRoom = ref({
   smallBlind: 10,
   bigBlind: 20,
   startingStack: 1000,
+  learningMode: false,
 })
 
 const gameState = ref({
@@ -466,6 +494,7 @@ async function createRoom() {
         small_blind: newRoom.value.smallBlind,
         big_blind: newRoom.value.bigBlind,
         starting_stack: newRoom.value.startingStack,
+        learning_mode: newRoom.value.learningMode,
       }),
     })
     if (!r.ok) throw new Error(await r.text())
@@ -965,6 +994,7 @@ h3 { font-size: 0.95em; color: #bbb; margin-bottom: 14px; }
 .opp-chip.opp-folded { opacity: 0.4; }
 .opp-chip.opp-out { opacity: 0.2; }
 .opp-name { font-size: 0.7em; font-weight: bold; max-width: 60px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.opp-personality { font-size: 0.55em; color: #a29bfe; font-style: italic; margin-top: -1px; }
 .opp-stack { font-size: 0.66em; color: var(--gold); }
 .opp-cards { display: flex; gap: 2px; margin: 2px 0; }
 .opp-bet { font-size: 0.6em; color: #e67e22; }
@@ -1103,6 +1133,69 @@ h3 { font-size: 0.95em; color: #bbb; margin-bottom: 14px; }
 .raise-display { font-size: 1.1em; font-weight: bold; color: #f39c12; }
 .mobile-slider { width: 100%; accent-color: #f39c12; height: 6px; }
 .confirm-raise { flex: unset; width: 100%; min-height: 50px; }
+
+/* Mobile equity bar */
+.opp-equity-wrap {
+  position: relative;
+  width: 100%;
+  height: 12px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 3px;
+}
+.opp-equity-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.opp-equity-bar.eq-high { background: #27ae60; }
+.opp-equity-bar.eq-mid  { background: #f39c12; }
+.opp-equity-bar.eq-low  { background: #c0392b; }
+.opp-equity-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.58em;
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 0 0 3px rgba(0,0,0,0.9);
+}
+
+/* Learning mode toggle */
+.form-group-toggle {
+  margin-bottom: 8px;
+}
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.88em;
+  color: #ccc;
+  padding: 8px 10px;
+  background: rgba(46,204,113,0.06);
+  border: 1px solid rgba(46,204,113,0.25);
+  border-radius: 8px;
+  transition: border-color 0.2s;
+}
+.toggle-label:hover { border-color: #2ecc71; }
+.toggle-label input[type="checkbox"] { accent-color: #2ecc71; width: 15px; height: 15px; }
+.toggle-hint { font-size: 0.78em; color: #777; margin-left: 2px; }
+
+.learning-pill {
+  background: rgba(46,204,113,0.15);
+  border: 1px solid #2ecc71;
+  color: #2ecc71;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.72em;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+.mobile-hints { margin: 4px 0; }
 
 /* Spectator mode */
 .spectator-hint {
